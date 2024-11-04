@@ -11,8 +11,8 @@ import numpy as np
 from scipy.sparse import coo_matrix
 import solidspy.uelutil as ue
 import solidspy.femutil as fem
-from NRoutines.femutil import eletype
-from NRoutines.uelutil import elast_quad4
+from NRoutines.kinematics import eletype
+from NRoutines.local_K import uel4nquad
 
 
 def eqcounter(cons, ndof_node=1):
@@ -85,7 +85,6 @@ def DME_heat(cons, elements, ndof_node=1, ndof_el_max=4, ndof_el=None):
     # Loop over elements to populate assembly operator
     for ele in range(nels):
         iet = elements[ele, 1]  # Element type
-        print(iet)
         if ndof_el is None:
             ndof, nnodes, _ = eletype(iet)  # Get DOFs and nodes for the element type
         else:
@@ -136,43 +135,6 @@ def uel_heat(element_nodes, params):
     return kloc
 
 
-def retriever_heat(elements, mats, nodes, ele, uel=None):
-    """Computes the elemental stiffness (conductivity) matrix of element `ele` for heat transfer problems.
-
-    Parameters
-    ----------
-    elements : ndarray
-      Array with the number for the nodes in each element.
-    mats : ndarray
-      Array with the material profiles.
-    nodes : ndarray
-      Array with the nodal numbers and coordinates.
-    ele : int
-      Identifier of the element to be assembled.
-    uel : callable, optional
-      Function that returns the local stiffness matrix. Defaults to `uel_heat`.
-
-    Returns
-    -------
-    kloc : ndarray (float)
-      Array with the local stiffness (conductivity) matrix.
-    """
-    # Tipo de elemento
-    elem_type = elements[ele, 1]
-    # Parámetros del material, aquí obtenemos la conductividad térmica
-    params = mats[elements[ele, 2], :]
-    # Coordenadas del elemento
-    elcoor = nodes[elements[ele, 3:], 1:]
-    
-    # Usa `uel_heat` si no se especifica otra función
-    if uel is None:
-        kloc = uel_heat(nodes, mats)
-    
-    # Solo devolvemos kloc ya que mloc no es necesario
-    #kloc = uel(elcoor, params)
-    return kloc
-
-
 def assembler_heat(elements, mats, nodes, neq, DME, uel=None):
     # Assemble the global stiffness matrix KG for heat transfer
     KG = np.zeros((neq, neq))
@@ -191,7 +153,7 @@ def assembler_heat(elements, mats, nodes, neq, DME, uel=None):
             elcoor[j, 1] = nodes[node_index, 2]  # y-coordinate
 
         # Compute the local stiffness matrix for heat transfer
-        kloc = elast_quad4(elcoor, thermal_conductivity)
+        kloc = uel4nquad(elcoor, thermal_conductivity)
         dme = DME[el, :]  # Get the DOF mapping for the element
 
         # Assemble local stiffness into the global stiffness matrix
@@ -204,111 +166,6 @@ def assembler_heat(elements, mats, nodes, neq, DME, uel=None):
                         KG[glob_row, glob_col] += kloc[row, col]
 
     return KG
-
-
-def dense_assem(elements, mats, nodes, neq, assem_op, uel=None):
-    """
-    Assembles the global stiffness matrix
-    using a dense storing scheme
-
-    Parameters
-    ----------
-    elements : ndarray (int)
-      Array with the number for the nodes in each element.
-    mats : ndarray (float)
-      Array with the material profiles.
-    nodes : ndarray (float)
-      Array with the nodal numbers and coordinates.
-    assem_op : ndarray (int)
-      Assembly operator.
-    neq : int
-      Number of active equations in the system.
-    uel : callable function (optional)
-      Python function that returns the local stiffness matrix.
-
-    Returns
-    -------
-    kglob : ndarray (float)
-      Array with the global stiffness matrix in a dense numpy
-      array.
-
-    """
-    kglob = np.zeros((neq, neq))
-    mglob = np.zeros((neq, neq))
-    nels = elements.shape[0]
-    for ele in range(nels):
-        kloc, mloc = retriever_heat(elements, mats, nodes, ele, uel=uel)
-        ndof = kloc.shape[0]
-        dme = assem_op[ele, :ndof]
-        for row in range(ndof):
-            glob_row = dme[row]
-            if glob_row != -1:
-                for col in range(ndof):
-                    glob_col = dme[col]
-                    if glob_col != -1:
-                        kglob[glob_row, glob_col] += kloc[row, col]
-                        mglob[glob_row, glob_col] += mloc[row, col]
-
-    return kglob, mglob
-
-
-def sparse_assem(elements, mats, nodes, neq, assem_op, uel=None):
-    """
-    Assembles the global stiffness matrix
-    using a sparse storing scheme
-
-    The scheme used to assemble is COOrdinate list (COO), and
-    it converted to Compressed Sparse Row (CSR) afterward
-    for the solution phase [1]_.
-
-    Parameters
-    ----------
-    elements : ndarray (int)
-      Array with the number for the nodes in each element.
-    mats    : ndarray (float)
-      Array with the material profiles.
-    nodes    : ndarray (float)
-      Array with the nodal numbers and coordinates.
-    assem_op : ndarray (int)
-      Assembly operator.
-    neq : int
-      Number of active equations in the system.
-    uel : callable function (optional)
-      Python function that returns the local stiffness matrix.
-
-    Returns
-    -------
-    kglob : sparse matrix (float)
-      Array with the global stiffness matrix in a sparse
-      Compressed Sparse Row (CSR) format.
-
-    References
-    ----------
-    .. [1] Sparse matrix. (2017, March 8). In Wikipedia,
-        The Free Encyclopedia.
-        https://en.wikipedia.org/wiki/Sparse_matrix
-
-    """
-    rows = []
-    cols = []
-    stiff_vals = []
-    mass_vals = []
-    nels = elements.shape[0]
-    for ele in range(nels):
-        kloc = retriever_heat(elements, mats, nodes, ele, uel=uel)
-        ndof = kloc.shape[0]
-        dme = assem_op[ele, :ndof]
-        for row in range(ndof):
-            glob_row = dme[row]
-            if glob_row != -1:
-                for col in range(ndof):
-                    glob_col = dme[col]
-                    if glob_col != -1:
-                        rows.append(glob_row)
-                        cols.append(glob_col)
-                        stiff_vals.append(kloc[row, col])
-    stiff = coo_matrix((stiff_vals, (rows, cols)), shape=(neq, neq)).tocsr()
-    return stiff
 
 
 def loadasem(loads, bc_array, neq, ndof_node=1):
@@ -341,10 +198,6 @@ def loadasem(loads, bc_array, neq, ndof_node=1):
             rhs_vec[dof_id] += loads[cont, 1]  # Suma la carga al vector RHS
 
     return rhs_vec
-
-
-
-
 
 
 if __name__ == "__main__":

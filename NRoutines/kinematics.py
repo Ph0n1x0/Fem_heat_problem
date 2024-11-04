@@ -21,7 +21,7 @@ References
 
 """
 import numpy as np
-from NRoutines.gaussutil import gauss_nd, gauss_1d
+from NRoutines.gauss_functions import gauss_nd, gauss_1d
 
 
 def eletype(eletype):

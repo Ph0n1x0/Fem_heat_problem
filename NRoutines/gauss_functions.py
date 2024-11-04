@@ -102,7 +102,6 @@ def gauss_1d(npts):
 
     return pts, wts
 
-
 def gauss_nd(npts, ndim=2):
     """
     Return Gauss points and weights for Gauss quadrature in
@@ -125,7 +124,6 @@ def gauss_nd(npts, ndim=2):
     nd_wts = product(wts, repeat=ndim)
     nd_wts = [np.prod(nd_wt) for nd_wt in nd_wts]
     return nd_pts, nd_wts
-
 
 def gauss_tri(order=2):
     """
@@ -190,7 +188,6 @@ def gauss_tri(order=2):
         msg = "The order should be in [1, 7]"
         raise ValueError(msg)
     return pts, wts
-
 
 def gauss_tet(order=3):
     """

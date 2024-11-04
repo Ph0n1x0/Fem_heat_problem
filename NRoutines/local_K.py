@@ -1,8 +1,9 @@
-from NRoutines.gaussutil import gauss_1d, gauss_nd
 import numpy as np 
-from NRoutines.femutil import elast_diff_2d, shape_quad4
+from NRoutines.kinematics import elast_diff_2d, shape_quad4
+from NRoutines.gauss_functions import gauss_1d, gauss_nd
 
-def elast_quad4(coord, params):
+
+def uel4nquad(coord, params):
     """Quadrilateral element with 4 nodes for 2D heat transfer
 
     Parameters
