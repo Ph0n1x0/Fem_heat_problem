@@ -31,7 +31,7 @@ plt.rcParams["axes.spines.top"] = False
 
 
 #%% Plotting routines
-def fields_plot(elements, nodes, temperature, gradients=None, fluxes=None):
+def fields_plot(elements, nodes, temperature, ele_type ,gradients=None, fluxes=None, ):
     """Plot contours for temperature, temperature gradients, and heat flux
 
     Parameters
@@ -49,20 +49,20 @@ def fields_plot(elements, nodes, temperature, gradients=None, fluxes=None):
         Array with heat flux field in the nodes (optional).
     """
     # Plot the temperature field
-    plot_node_field(temperature, nodes, elements, title=["Temperature"],
+    plot_node_field(ele_type,temperature, nodes, elements, title=["Temperature"],
                     figtitle=["Temperature Distribution"])
 
     if gradients is not None:
-        plot_node_field(gradients, nodes, elements,
+        plot_node_field(ele_type,gradients, nodes, elements,
                         title=["Gradient x", "Gradient y"],
                         figtitle=["Temperature Gradient x", "Temperature Gradient y"])
 
     if fluxes is not None:
-        plot_node_field(fluxes, nodes, elements,
+        plot_node_field(ele_type,fluxes, nodes, elements,
                         title=["Flux x", "Flux y"],
                         figtitle=["Heat Flux x", "Heat Flux y"])
 
-def plot_node_field(field, nodes, elements, plt_type="contourf", levels=12,
+def plot_node_field(ele_type,field, nodes, elements, plt_type="contourf", levels=12,
                     savefigs=False, title=None, figtitle=None, filename=None):
     """Plot the nodal field using a triangulation
 
@@ -88,7 +88,7 @@ def plot_node_field(field, nodes, elements, plt_type="contourf", levels=12,
     filename : list of strings (optional)
         Filenames to save the figures. Used when `savefigs=True`.
     """
-    tri = mesh2tri(nodes, elements)
+    tri = mesh2tri(nodes, elements, ele_type)
     if len(field.shape) == 1:
         nfields = 1
     else:
@@ -143,7 +143,7 @@ def tri_plot(tri, field, title="", levels=12, savefigs=False,
         plt.savefig(filename)
 
 #%% Auxiliar functions for plotting
-def mesh2tri(nodes, elements):
+def mesh2tri(nodes, elements,ele_type):
     """Generate a matplotlib.tri.Triangulation object from the mesh
 
     Parameters
@@ -162,13 +162,21 @@ def mesh2tri(nodes, elements):
     coord_y = nodes[:, 2]
     triangs = []
 
-    for elem in elements:
-        # Decompose the 4-noded quadrilateral element into two triangles
-        triangs.append([elem[3], elem[4], elem[5]])  # First triangle
-        triangs.append([elem[5], elem[6], elem[3]])  # Second triangle
+    if ele_type == "quad":
+        for elem in elements:
+            # Decompose the 4-noded quadrilateral element into two triangles
+            triangs.append([elem[3], elem[4], elem[5]])  # First triangle
+            triangs.append([elem[5], elem[6], elem[3]])  # Second triangle
+    elif ele_type == "triang":
+        for elem in elements:
+            # Cada elemento ya es un triángulo con 3 nodos
+            triangs.append([elem[3], elem[4], elem[5]])
+
 
     tri = Triangulation(coord_x, coord_y, np.array(triangs))
     return tri
+
+
 
 #%% Auxiliar variables computation
 def complete_disp(bc_array, nodes, sol):
@@ -198,6 +206,36 @@ def complete_disp(bc_array, nodes, sol):
         else:
             sol_complete[i] = sol[bc_array[i]]  # Use the solution value
     return sol_complete
+
+def stdm3Ntria_heat(coord):
+    """Gradient of shape functions for a 3-noded triangular element.
+
+    Parameters
+    ----------
+    coord : ndarray
+        Coordinates of the nodes of the element (3, 2).
+
+    Returns
+    -------
+    ddet : float
+        Determinant of the Jacobian evaluated at the centroid.
+    gradN : ndarray
+        Gradient of shape functions evaluated at the centroid.
+    """
+    # Extraer coordenadas de los nodos
+    x1, y1 = coord[0]
+    x2, y2 = coord[1]
+    x3, y3 = coord[2]
+    
+    # Cálculo del área del triángulo
+    A = 0.5 * abs(x1 * (y2 - y3) + x2 * (y3 - y1) + x3 * (y1 - y2))
+    
+    # Gradientes de las funciones de forma en el triángulo (constantes)
+    b1, b2, b3 = y2 - y3, y3 - y1, y1 - y2
+    c1, c2, c3 = x3 - x2, x1 - x3, x2 - x1
+    gradN = np.array([[b1, c1], [b2, c2], [b3, c3]]) / (2 * A)
+    
+    return 2 * A, gradN  # Retornamos el doble del área como el determinante
 
 def stdm4NQ_heat(r, s, coord):
     """Gradient of shape functions for a 4-noded quad element
@@ -251,7 +289,7 @@ def temperature_gradients_nodes(nodes, elements, mats, UC):
     """
     nelems = elements.shape[0]
     nnodes = nodes.shape[0]
-    nnodes_elem = 4  # Number of nodes per element for a linear quadrilateral, For a general form, the element type function must be here!!!
+    nnodes_elem=4
 
     elcoor = np.zeros([nnodes_elem, 2])
     gradients_nodes = np.zeros([nnodes, 2])
@@ -297,6 +335,72 @@ def temperature_gradients_nodes(nodes, elements, mats, UC):
             flux_nodes[i, :] /= el_nodes[i]
 
     return gradients_nodes, flux_nodes
+
+def temperature_gradients_nodes_tri(nodes, elements, mats, UC):
+    """
+    Compute averaged temperature gradients and heat flux at nodes for 3-noded triangular elements.
+
+    Parameters
+    ----------
+    nodes : ndarray (float)
+        Array with node coordinates.
+    elements : ndarray (int)
+        Array with the node indices for each element.
+    mats : ndarray (float)
+        Array with material properties, including thermal conductivity.
+    UC : ndarray (float)
+        Array with complete temperature values at all nodes.
+
+    Returns
+    -------
+    gradients_nodes : ndarray
+        Temperature gradients evaluated at the nodes.
+    flux_nodes : ndarray
+        Heat flux evaluated at the nodes.
+    """
+    nnodes_elem = 3  # Triangular elements with 3 nodes
+    nelems = elements.shape[0]
+    nnodes = nodes.shape[0]
+
+    elcoor = np.zeros([nnodes_elem, 2])
+    gradients_nodes = np.zeros([nnodes, 2])
+    flux_nodes = np.zeros([nnodes, 2])
+    el_nodes = np.zeros([nnodes], dtype=int)
+
+    for i in range(nelems):
+        # Conductividad térmica
+        k = mats[0, 0]  
+
+
+        # Obtener las coordenadas de los nodos del elemento
+        for j in range(nnodes_elem):
+            node_index = elements[i, j + 3]
+            elcoor[j, 0] = nodes[node_index, 1]  # coordenada x
+            elcoor[j, 1] = nodes[node_index, 2]  # coordenada y
+
+        # Extraer temperaturas en los nodos del elemento
+        temp = np.array([UC[elements[i, j + 3]] for j in range(nnodes_elem)])
+
+        # Calcular el gradiente de temperatura en el centroide del triángulo
+        _, gradN = stdm3Ntria_heat(elcoor)
+        gradient = np.dot(gradN.T, temp)
+        flux = -k * gradient  # Flujo de calor usando la ley de Fourier
+
+        # Acumular gradientes y flujos en cada nodo
+        for j in range(nnodes_elem):
+            node_index = elements[i, j + 3]
+            gradients_nodes[node_index, :] += gradient
+            flux_nodes[node_index, :] += flux
+            el_nodes[node_index] += 1
+
+    # Promediar los gradientes y flujos
+    for i in range(nnodes):
+        if el_nodes[i] > 0:
+            gradients_nodes[i, :] /= el_nodes[i]
+            flux_nodes[i, :] /= el_nodes[i]
+
+    return gradients_nodes, flux_nodes
+
 
 
 #%% Doc-testing

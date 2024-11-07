@@ -7,10 +7,10 @@ This module contains functions to prepare the main files for simulations with a 
 """
 import numpy as np 
 import meshio
+import matplotlib.pyplot as plt
 
 
-def assem_files_w_msh(filename, heat_load):
-
+def assem_files_w_msh(filename, heat_load, ele_type):
 
     mesh       = meshio.read(filename)   # Leer malla de gmsh
     points     = mesh.points
@@ -18,19 +18,27 @@ def assem_files_w_msh(filename, heat_load):
     point_data = mesh.point_data
     cell_data  = mesh.cell_data
 
-    #compute nodes
-    nodes_array = node_writer(points, point_data)
-    nodes_array = boundary_conditions(cells, cell_data, 400 , nodes_array, -1)
+    if ele_type =="quad":
+        #compute nodes
+        nodes_array = node_writer(points, point_data)
+        nodes_array = boundary_conditions(cells, cell_data, 400 , nodes_array, -1)
 
-    #compute elems
-    nf, els1_array = ele_writer(cells, cell_data, "quad", 100, 1 , 0 , 0)
-    nini = nf
-    nf, els2_array = ele_writer(cells, cell_data, "quad", 200, 1 , 1,  nini)
-    els_array = np.vstack((els1_array, els2_array))
+        #compute elems
+        nf, els1_array = ele_writer(cells, cell_data, "quad", 100, 1 , 0 , 0)
+        nini = nf
+        nf, els2_array = ele_writer(cells, cell_data, "quad", 200, 1 , 1,  nini)
+        els_array = np.vstack((els1_array, els2_array))
 
-    #compute loads
-    cargas = loading(cells, cell_data, 500 , heat_load)
-
+        #compute loads
+        cargas = loading(cells, cell_data, 500 , heat_load)
+    elif ele_type=="triang":
+        #compute nodes
+        nodes_array = node_writer(points, point_data)
+        nodes_array = boundary_conditions(cells, cell_data, 10 , nodes_array, -1)
+        #compute elems
+        nf, els_array = ele_writer(cells, cell_data, "triangle", 9, 3 , 0 , 0)  #elemnt type=3 for a 3-node triangle
+        #compute loads
+        cargas = loading(cells, cell_data, 11 , heat_load)
 
 
     #save files
@@ -43,6 +51,7 @@ def assem_files_w_msh(filename, heat_load):
     mats      = np.loadtxt('files/mater.txt', ndmin=2)
     elements  = np.loadtxt('files/eles.txt', ndmin=2, dtype=int)
     loads     = np.loadtxt('files/loads.txt', ndmin=2)
+
        
     return nodes, mats, elements, loads
 

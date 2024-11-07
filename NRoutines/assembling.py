@@ -12,7 +12,7 @@ from scipy.sparse import coo_matrix
 import solidspy.uelutil as ue
 import solidspy.femutil as fem
 from NRoutines.kinematics import eletype
-from NRoutines.local_K import uel4nquad
+from NRoutines.local_K import uel4nquad, uel3ntria
 
 
 def eqcounter(cons, ndof_node=1):
@@ -135,11 +135,10 @@ def uel_heat(element_nodes, params):
     return kloc
 
 
-def assembler_heat(elements, mats, nodes, neq, DME, uel=None):
+def assembler_heat(elements, mats, nodes, neq, DME, nnodes, ele_type,uel=None):
     # Assemble the global stiffness matrix KG for heat transfer
     KG = np.zeros((neq, neq))
     nels = elements.shape[0]
-    nnodes = 4  # Each element has 4 nodes
 
     for el in range(nels):
         elcoor = np.zeros([nnodes, 2])
@@ -153,17 +152,30 @@ def assembler_heat(elements, mats, nodes, neq, DME, uel=None):
             elcoor[j, 1] = nodes[node_index, 2]  # y-coordinate
 
         # Compute the local stiffness matrix for heat transfer
-        kloc = uel4nquad(elcoor, thermal_conductivity)
-        dme = DME[el, :]  # Get the DOF mapping for the element
+        if ele_type == "quad":
+          kloc = uel4nquad(elcoor, thermal_conductivity)
+          dme = DME[el, :]  # Get the DOF mapping for the element
 
-        # Assemble local stiffness into the global stiffness matrix
-        for row in range(nnodes):
-            glob_row = dme[row]
-            if glob_row != -1:  # Check if the row DOF is free
-                for col in range(nnodes):
-                    glob_col = dme[col]
-                    if glob_col != -1:  # Check if the col DOF is free
-                        KG[glob_row, glob_col] += kloc[row, col]
+          # Assemble local stiffness into the global stiffness matrix
+          for row in range(nnodes):
+              glob_row = dme[row]
+              if glob_row != -1:  # Check if the row DOF is free
+                  for col in range(nnodes):
+                      glob_col = dme[col]
+                      if glob_col != -1:  # Check if the col DOF is free
+                          KG[glob_row, glob_col] += kloc[row, col]
+        elif ele_type== "triang":
+            kloc = uel3ntria(elcoor, thermal_conductivity)
+            dme = DME[el, :]  # Get the DOF mapping for the element
+
+            # Assemble local stiffness into the global stiffness matrix
+            for row in range(nnodes):
+                glob_row = dme[row]
+                if glob_row != -1:  # Check if the row DOF is free
+                    for col in range(nnodes):
+                        glob_col = dme[col]
+                        if glob_col != -1:  # Check if the col DOF is free
+                            KG[glob_row, glob_col] += kloc[row, col]
 
     return KG
 
